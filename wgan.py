@@ -9,12 +9,22 @@ from torch.linalg import vector_norm as torch_vnorm
 from dataset import mnist
 
 
-λ = 10 # hyperparameter controlling strength of the gradient penalty
+batch = 8 # batch size
+λ = 10. # hyperparameter controlling strength of the gradient penalty
+lr_d = 0.0003  # learning rate for discriminator
+lr_g = 0.00003 # learning rate for generator
+d_step_n = 10 # number of discriminator steps per generator step
 
 
 def show_img(img):
-  plt.imshow(img.detach().numpy().reshape(-1, 28, 28)[0])
-  plt.show()
+  np_img = img.detach().numpy()
+  plt.imshow(np.concatenate([
+    np.concatenate([np_img[0], np_img[1]], axis=1),
+    np.concatenate([np_img[2], np_img[3]], axis=1)
+  ], axis=0))
+  plt.show(block=False)
+  plt.pause(1)
+  plt.close()
 
 
 class Discriminator(nn.Module):
@@ -54,25 +64,25 @@ class Generator(nn.Module):
     self.layers = nn.Sequential(
       nn.Linear(128, 400),
       nn.LeakyReLU(),
-      nn.Linear(400, 400),
+      nn.Linear(400, 400, bias=False),
       nn.LayerNorm([400]),
       nn.LeakyReLU(),
-      nn.Linear(400, 400),
+      nn.Linear(400, 400, bias=False),
       nn.LayerNorm([400]),
       nn.LeakyReLU(),
-      nn.Linear(400, 768),
+      nn.Linear(400, 768, bias=False),
       nn.Unflatten(1, [48, 4, 4]),
-      nn.ConvTranspose2d(48, 48, 3, 3),
+      nn.ConvTranspose2d(48, 48, 3, 3, bias=False),
       nn.LayerNorm([48, 12, 12]),
       nn.LeakyReLU(),
-      nn.ConvTranspose2d(48, 48, 5),
+      nn.ConvTranspose2d(48, 48, 5, bias=False),
       nn.LeakyReLU(),
-      nn.ConvTranspose2d(48, 32, 5),
+      nn.ConvTranspose2d(48, 32, 5, bias=False),
       nn.LayerNorm([32, 20, 20]),
       nn.LeakyReLU(),
-      nn.ConvTranspose2d(32, 32, 5),
+      nn.ConvTranspose2d(32, 32, 5, bias=False),
       nn.LeakyReLU(),
-      nn.ConvTranspose2d(32, 1, 5),
+      nn.ConvTranspose2d(32, 1, 5, bias=False),
       nn.Sigmoid(),
     )
   def forward(self, z):
@@ -83,7 +93,7 @@ class WGANDisc:
   """ utility class for training a Wasserstein GAN discriminator """
   def __init__(self, discriminator, input_size):
     self.disc = discriminator
-    self.optim = torch.optim.Adam(self.disc.parameters(), 0.0003, (0.9, 0.999))
+    self.optim = torch.optim.Adam(self.disc.parameters(), lr_d, (0.9, 0.999))
     summary(self.disc, input_size=input_size)
   def train_step(self, data_r, wts_r, data_g, wts_g):
     """ perform 1 training step of WGAN training
@@ -111,7 +121,7 @@ class WGANDisc:
     gradient = torch_grad(inputs=data_mix, outputs=y,
       grad_outputs=torch.ones(*y.shape),
       create_graph=True)[0]
-    penalty = torch.relu(torch_vnorm(gradient) - 1.)**2
+    penalty = (gradient**2).sum()
     return penalty
   def rand_weighted_mix(self, data_r, wts_r, data_g, wts_g, N=None):
     """ Create a batch of mixed data. The batchsize is N.
@@ -134,18 +144,24 @@ class WGANDisc:
     sum_wts = wts.cumsum(dim=0)
     shifts = (torch.rand(1) + torch.arange(n).reshape(n, 1))/(n + 1)
     return (shifts > sum_wts).sum(1)
+  def save(self, path):
+    torch.save(self.disc, path + ".disc.pt")
 
 
 class WGAN:
   def __init__(self, generator, discriminator, latents_size, img_size):
     self.gen = generator
-    self.optim = torch.optim.Adam(self.gen.parameters(), 0.0003, (0.9, 0.999))
+    self.optim = torch.optim.Adam(self.gen.parameters(), lr_g, (0.9, 0.999))
     self.latents_size = latents_size
     summary(self.gen, latents_size) # hardcoded lat
     self.wgan_disc = WGANDisc(discriminator, img_size)
+    self.cycle_counter = 0
   def train_step(self, data_r, wts_r):
+    self.cycle_counter = (self.cycle_counter - 1) % d_step_n
     loss_d = self.train_step_disc(data_r, wts_r)
-    loss_g = self.train_step_gen()
+    if self.cycle_counter == 0:
+      loss_g = self.train_step_gen()
+    else: loss_g = 0.
     return "%f\t%f" % (loss_d, loss_g)
   def train_step_gen(self):
     self.optim.zero_grad()
@@ -160,16 +176,45 @@ class WGAN:
     return self.wgan_disc.train_step(data_r, wts_r, data_g, wts_g)
   def get_latents(self):
     return torch.randn(*self.latents_size)
+  def save(self, path):
+    torch.save(self.gen, path + ".gen.pt")
+    self.wgan_disc.save(path)
+  @classmethod
+  def load(cls, path, latents_size, img_size):
+    return cls(torch.load(path + ".gen.pt"), torch.load(path + ".disc.pt"),
+      latents_size, img_size)
 
 
-wgan = WGAN(Generator(), Discriminator(), (16, 128), (16, 28, 28))
+def batchify(generator, batchsz):
+  stack = []
+  for (img, _) in generator:
+    if len(stack) >= batchsz:
+      yield 0.5*(1. + torch.cat(stack, dim=0)) # black=0.5, white=1
+      stack = []
+    stack.append(img)
 
-for i, (img, _) in enumerate(mnist):
-  loss = wgan.train_step(img, torch.tensor([1.]))
-  print(i, "\t", loss)
-  if i % 20 == 0:
-    with torch.no_grad():
-      img_gen = wgan.gen(wgan.get_latents())
-      show_img(img_gen[0])
+
+def main(save_path, load_path=None):
+  if load_path is None:
+    wgan = WGAN(Generator(), Discriminator(), (16, 128), (16, 28, 28))
+  else:
+    wgan = WGAN.load(load_path, (16, 128), (16, 28, 28))
+  
+  for i, img in enumerate(batchify(mnist, batch)):
+    loss = wgan.train_step(img, torch.tensor([1.]))
+    print(i, "\t", loss)
+    if i % 20 == 0:
+      print("saving...")
+      wgan.save(save_path)
+      print("saved.")
+      with torch.no_grad():
+        img_gen = wgan.gen(wgan.get_latents())
+        show_img(img_gen)
+
+
+
+if __name__ == "__main__":
+  from sys import argv
+  main(*argv[1:])
 
 
