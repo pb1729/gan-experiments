@@ -11,9 +11,9 @@ from dataset import mnist
 
 batch = 8 # batch size
 λ = 10. # hyperparameter controlling strength of the gradient penalty
-lr_d = 0.0003  # learning rate for discriminator
+lr_d = 0.0002  # learning rate for discriminator
 lr_g = 0.00003 # learning rate for generator
-d_step_n = 10 # number of discriminator steps per generator step
+d_step_n = 4   # number of discriminator steps per generator step
 
 
 def show_img(img):
@@ -27,31 +27,44 @@ def show_img(img):
   plt.close()
 
 
+class ResLayer(nn.Module):
+  def __init__(self, n):
+    super().__init__()
+    self.layers = nn.Sequential(
+      nn.Linear(n, n),
+      nn.LayerNorm([n]),
+      nn.LeakyReLU(),
+      nn.Linear(n, n, bias=False),
+    )
+  def forward(self, x):
+    return x + self.layers(x)
+
+class ConvResLayer(nn.Module):
+  def __init__(self, n, h, w, kernsz):
+    super().__init__()
+    self.layers = nn.Sequential(
+      nn.Conv2d(n, n, kernsz, padding="same"),
+      nn.LayerNorm([n, h, w]),
+      nn.LeakyReLU(),
+      nn.Conv2d(n, n, kernsz, padding="same", bias=False),
+    )
+  def forward(self, x):
+    return x + self.layers(x)
+
 class Discriminator(nn.Module):
   def __init__(self):
     super().__init__()
     self.layers = nn.Sequential(
-      nn.Conv2d( 1, 32, 5),
-      nn.LeakyReLU(),
-      nn.Conv2d(32, 32, 5),
-      nn.LayerNorm([32, 20, 20]),
-      nn.LeakyReLU(),
-      nn.Conv2d(32, 48, 5),
-      nn.LeakyReLU(),
-      nn.Conv2d(48, 48, 5),
-      nn.LayerNorm([48, 12, 12]),
-      nn.LeakyReLU(),
-      nn.AvgPool2d(3, 3),
+      nn.Conv2d( 1, 32, 5, bias=False),
+      ConvResLayer(32, 24, 24, 5),
+      ConvResLayer(32, 24, 24, 5),
+      ConvResLayer(32, 24, 24, 5),
+      nn.AvgPool2d(4),
       nn.Flatten(),
-      nn.Linear(768, 400),
-      nn.LayerNorm([400]),
-      nn.LeakyReLU(),
-      nn.Linear(400, 400),
-      nn.LayerNorm([400]),
-      nn.LeakyReLU(),
-      nn.Linear(400, 400),
-      nn.LayerNorm([400]),
-      nn.LeakyReLU(),
+      nn.Linear(1152, 400, bias=False),
+      ResLayer(400),
+      ResLayer(400),
+      ResLayer(400),
       nn.Linear(400, 1, bias=False),
     )
   def forward(self, x):
@@ -63,27 +76,14 @@ class Generator(nn.Module):
     super().__init__()
     self.layers = nn.Sequential(
       nn.Linear(128, 400),
-      nn.LeakyReLU(),
-      nn.Linear(400, 400, bias=False),
-      nn.LayerNorm([400]),
-      nn.LeakyReLU(),
-      nn.Linear(400, 400, bias=False),
-      nn.LayerNorm([400]),
-      nn.LeakyReLU(),
-      nn.Linear(400, 768, bias=False),
-      nn.Unflatten(1, [48, 4, 4]),
-      nn.ConvTranspose2d(48, 48, 3, 3, bias=False),
-      nn.LayerNorm([48, 12, 12]),
-      nn.LeakyReLU(),
-      nn.ConvTranspose2d(48, 48, 5, bias=False),
-      nn.LeakyReLU(),
-      nn.ConvTranspose2d(48, 32, 5, bias=False),
-      nn.LayerNorm([32, 20, 20]),
-      nn.LeakyReLU(),
-      nn.ConvTranspose2d(32, 32, 5, bias=False),
-      nn.LeakyReLU(),
+      ResLayer(400),
+      ResLayer(400),
+      ResLayer(400),
+      nn.Linear(400, 1152, bias=False),
+      nn.Unflatten(1, [32, 6, 6]),
+      nn.ConvTranspose2d(32, 32, 4, 4, bias=False),
+      ConvResLayer(32, 24, 24, 5),
       nn.ConvTranspose2d(32, 1, 5, bias=False),
-      nn.Sigmoid(),
     )
   def forward(self, z):
     return self.layers(z).reshape(-1, 28, 28)
@@ -112,7 +112,7 @@ class WGANDisc:
       + λ*self.gradient_penalty(data_r, wts_r, data_g, wts_g))
     loss.backward()
     self.optim.step()
-    return float(loss.detach())
+    return loss.item()
   def gradient_penalty(self, data_r, wts_r, data_g, wts_g):
     """ The gradient penalty to enforce the Lipschitz condition. """
     data_mix = self.rand_weighted_mix(data_r, wts_r, data_g, wts_g)
@@ -168,7 +168,7 @@ class WGAN:
     loss = -self.wgan_disc.disc(self.gen(self.get_latents())).mean()
     loss.backward()
     self.optim.step()
-    return float(loss.detach())
+    return loss.item()
   def train_step_disc(self, data_r, wts_r):
     data_g = self.gen(self.get_latents()).detach()
     batch = data_g.shape[0]
@@ -189,7 +189,7 @@ def batchify(generator, batchsz):
   stack = []
   for (img, _) in generator:
     if len(stack) >= batchsz:
-      yield 0.5*(1. + torch.cat(stack, dim=0)) # black=0.5, white=1
+      yield torch.cat(stack, dim=0)
       stack = []
     stack.append(img)
 
