@@ -84,6 +84,7 @@ class Generator(nn.Module):
       nn.ConvTranspose2d(32, 32, 4, 4, bias=False),
       ConvResLayer(32, 24, 24, 5),
       nn.ConvTranspose2d(32, 1, 5, bias=False),
+      nn.Sigmoid()
     )
   def forward(self, z):
     return self.layers(z).reshape(-1, 28, 28)
