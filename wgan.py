@@ -7,6 +7,7 @@ from torch.autograd import grad as torch_grad
 from torch.linalg import vector_norm as torch_vnorm
 
 from dataset import mnist
+from tensorboard_viz import TensorBoard
 
 
 device = "cuda"
@@ -16,20 +17,6 @@ g_0 = 0.01 # hyperparameter controlling the lipschitz constant of the discrimina
 lr_d = 0.0002  # learning rate for discriminator
 lr_g = 0.00003 # learning rate for generator
 d_step_n = 4   # number of discriminator steps per generator step
-
-
-def show_img(img, wait=True):
-  np_img = img.detach().cpu().numpy()
-  plt.imshow(np.concatenate([
-    np.concatenate([np_img[0], np_img[1]], axis=1),
-    np.concatenate([np_img[2], np_img[3]], axis=1)
-  ], axis=0))
-  if wait:
-    plt.show()
-  else:
-    plt.show(block=False)
-    plt.pause(1)
-    plt.close()
 
 
 class ResLayer(nn.Module):
@@ -208,16 +195,19 @@ def main(save_path, load_path=None):
   else:
     wgan = WGAN.load(load_path, (16, 128), (16, 28, 28))
   
+  board = TensorBoard()
+
   for i, img in enumerate(batchify(mnist, batch)):
-    loss = wgan.train_step(img.to(device), torch.tensor([1.]).to(device))
+    img = img.to(device)
+    loss = wgan.train_step(img, torch.tensor([1.], device=device))
     print(i, "\t", loss)
-    if i % 200 == 0:
+    if i % 100 == 0:
       print("saving...")
       wgan.save(save_path)
       print("saved.")
       with torch.no_grad():
         img_gen = wgan.gen(wgan.get_latents())
-        show_img(img_gen)
+        board.img_grid("generated images %d" % i, torch.cat([img, img_gen], dim=0))
 
 
 
