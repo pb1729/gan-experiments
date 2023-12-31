@@ -9,6 +9,7 @@ from torch.linalg import vector_norm as torch_vnorm
 from dataset import mnist
 
 
+device = "cuda"
 batch = 8 # batch size
 λ = 10. # hyperparameter controlling strength of the gradient penalty
 lr_d = 0.0002  # learning rate for discriminator
@@ -16,15 +17,18 @@ lr_g = 0.00003 # learning rate for generator
 d_step_n = 4   # number of discriminator steps per generator step
 
 
-def show_img(img):
-  np_img = img.detach().numpy()
+def show_img(img, wait=True):
+  np_img = img.detach().cpu().numpy()
   plt.imshow(np.concatenate([
     np.concatenate([np_img[0], np_img[1]], axis=1),
     np.concatenate([np_img[2], np_img[3]], axis=1)
   ], axis=0))
-  plt.show(block=False)
-  plt.pause(1)
-  plt.close()
+  if wait:
+    plt.show()
+  else:
+    plt.show(block=False)
+    plt.pause(1)
+    plt.close()
 
 
 class ResLayer(nn.Module):
@@ -120,7 +124,7 @@ class WGANDisc:
     data_mix.requires_grad = True
     y = self.disc(data_mix)
     gradient = torch_grad(inputs=data_mix, outputs=y,
-      grad_outputs=torch.ones(*y.shape),
+      grad_outputs=torch.ones(*y.shape, device=device),
       create_graph=True)[0]
     penalty = (gradient**2).sum()
     return penalty
@@ -133,8 +137,8 @@ class WGANDisc:
       N = wts_r.shape[0] + wts_g.shape[0]
     i_r = self.sample_indices_weighted(wts_r, N)
     i_g = self.sample_indices_weighted(wts_g, N)
-    i_g = i_g[torch.randperm(N)] # shuffle
-    epsilon = torch.rand(N, 1, 1) # different amount of mixing for each element
+    i_g = i_g[torch.randperm(N, device=device)] # shuffle
+    epsilon = torch.rand(N, 1, 1, device=device) # different amount of mixing for each element
     return epsilon*data_r[i_r] + (1 - epsilon)*data_g[i_g]
   def sample_indices_weighted(self, wts, n):
     """ Smooth sample of indices according to the probabilities in wts.
@@ -143,7 +147,7 @@ class WGANDisc:
       are guaranteed to be sampled at least once, indices with a probability of 2/n at
       least twice, and so on. """
     sum_wts = wts.cumsum(dim=0)
-    shifts = (torch.rand(1) + torch.arange(n).reshape(n, 1))/(n + 1)
+    shifts = (torch.rand(1, device=device) + torch.arange(n, device=device).reshape(n, 1))/(n + 1)
     return (shifts > sum_wts).sum(1)
   def save(self, path):
     torch.save(self.disc, path + ".disc.pt")
@@ -173,16 +177,16 @@ class WGAN:
   def train_step_disc(self, data_r, wts_r):
     data_g = self.gen(self.get_latents()).detach()
     batch = data_g.shape[0]
-    wts_g = torch.ones(batch) / batch
+    wts_g = torch.ones(batch, device=device) / batch
     return self.wgan_disc.train_step(data_r, wts_r, data_g, wts_g)
   def get_latents(self):
-    return torch.randn(*self.latents_size)
+    return torch.randn(*self.latents_size, device=device)
   def save(self, path):
     torch.save(self.gen, path + ".gen.pt")
     self.wgan_disc.save(path)
   @classmethod
   def load(cls, path, latents_size, img_size):
-    return cls(torch.load(path + ".gen.pt"), torch.load(path + ".disc.pt"),
+    return cls(torch.load(path + ".gen.pt").to(device), torch.load(path + ".disc.pt").to(device),
       latents_size, img_size)
 
 
@@ -197,14 +201,14 @@ def batchify(generator, batchsz):
 
 def main(save_path, load_path=None):
   if load_path is None:
-    wgan = WGAN(Generator(), Discriminator(), (16, 128), (16, 28, 28))
+    wgan = WGAN(Generator().to(device), Discriminator().to(device), (16, 128), (16, 28, 28))
   else:
     wgan = WGAN.load(load_path, (16, 128), (16, 28, 28))
   
   for i, img in enumerate(batchify(mnist, batch)):
-    loss = wgan.train_step(img, torch.tensor([1.]))
+    loss = wgan.train_step(img.to(device), torch.tensor([1.]).to(device))
     print(i, "\t", loss)
-    if i % 20 == 0:
+    if i % 200 == 0:
       print("saving...")
       wgan.save(save_path)
       print("saved.")
