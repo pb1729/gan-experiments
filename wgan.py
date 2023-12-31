@@ -13,11 +13,26 @@ from tensorboard_viz import TensorBoard
 device = "cuda"
 batch = 8 # batch size
 λ = 10. # hyperparameter controlling strength of the gradient penalty
-g_0 = 0.01 # hyperparameter controlling the lipschitz constant of the discriminator
+g_0 = 0.0024 # hyperparameter controlling the lipschitz constant of the discriminator
 lr_d = 0.0002  # learning rate for discriminator
 lr_g = 0.00003 # learning rate for generator
 d_step_n = 4   # number of discriminator steps per generator step
 
+
+class F_LinSigmoid(torch.autograd.Function):
+  """ sigmoid function except with a constant derivative of 1 """
+  @staticmethod
+  def forward(self, inp):
+    return torch.sigmoid(inp)
+  @staticmethod
+  def backward(self, grad_out):
+    return grad_out
+
+class LinSigmoid(nn.Module):
+  def __init__(self):
+    super().__init__()
+  def forward(self, x):
+    return F_LinSigmoid.apply(x)
 
 class ResLayer(nn.Module):
   def __init__(self, n):
@@ -71,14 +86,14 @@ class Generator(nn.Module):
       ResLayer(400),
       ResLayer(400),
       ResLayer(400),
-      nn.Linear(400, 1152, bias=False),
-      nn.Unflatten(1, [32, 6, 6]),
+      nn.Linear(400, 32*7*7, bias=False),
+      nn.Unflatten(1, [32, 7, 7]),
       nn.ConvTranspose2d(32, 32, 4, 4, bias=False),
-      ConvResLayer(32, 24, 24, 5),
-      ConvResLayer(32, 24, 24, 5),
-      ConvResLayer(32, 24, 24, 5),
-      nn.ConvTranspose2d(32, 1, 5, bias=False),
-      nn.Sigmoid()
+      ConvResLayer(32, 28, 28, 5),
+      ConvResLayer(32, 28, 28, 5),
+      ConvResLayer(32, 28, 28, 5),
+      nn.Conv2d(32, 1, 5, padding="same", bias=False),
+      LinSigmoid()
     )
   def forward(self, z):
     return self.layers(z).reshape(-1, 28, 28)
@@ -160,7 +175,8 @@ class WGAN:
     return "%f\t%f" % (loss_d, loss_g)
   def train_step_gen(self):
     self.optim.zero_grad()
-    loss = -self.wgan_disc.disc(self.gen(self.get_latents())).mean()
+    img_gen = self.gen(self.get_latents())
+    loss = self.variance_bonus(img_gen) - self.wgan_disc.disc(img_gen).mean()
     loss.backward()
     self.optim.step()
     return loss.item()
@@ -171,6 +187,13 @@ class WGAN:
     return self.wgan_disc.train_step(data_r, wts_r, data_g, wts_g)
   def get_latents(self):
     return torch.randn(*self.latents_size, device=device)
+  def variance_bonus(self, img_gen, featuredim=None):
+    if featuredim is None:
+      featuredim = img_gen.shape[0] - 2
+    features = (torch.randn(featuredim, 1, 28, 28, device=device) * img_gen).sum(3).sum(2).T
+    ans = -torch.sqrt(torch.abs(torch.linalg.det(torch.cov(features))))
+    print("variance bonus:", ans.item())
+    return ans
   def save(self, path):
     torch.save(self.gen, path + ".gen.pt")
     self.wgan_disc.save(path)
@@ -207,7 +230,7 @@ def main(save_path, load_path=None):
       print("saved.")
       with torch.no_grad():
         img_gen = wgan.gen(wgan.get_latents())
-        board.img_grid("generated images %d" % i, torch.cat([img, img_gen], dim=0))
+        board.img_grid("Z generated images %d" % i, torch.cat([img, img_gen], dim=0))
 
 
 
