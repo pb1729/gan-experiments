@@ -18,7 +18,9 @@ class TensorBoard:
     self.writer = SummaryWriter(LOG_DIR)
     self.histories = {}
   def img_grid(self, label, images):
-    grid = torchvision.utils.make_grid(images[:, None, :, :])
+    grid = torchvision.utils.make_grid(images)
     self.writer.add_image(label, grid)
+  def scalar(self, label, i, val):
+    self.writer.add_scalar(label, val, i)
 
 
