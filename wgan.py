@@ -12,6 +12,7 @@ from dataset import mnist
 device = "cuda"
 batch = 8 # batch size
 λ = 10. # hyperparameter controlling strength of the gradient penalty
+g_0 = 0.01 # hyperparameter controlling the lipschitz constant of the discriminator
 lr_d = 0.0002  # learning rate for discriminator
 lr_g = 0.00003 # learning rate for generator
 d_step_n = 4   # number of discriminator steps per generator step
@@ -87,6 +88,8 @@ class Generator(nn.Module):
       nn.Unflatten(1, [32, 6, 6]),
       nn.ConvTranspose2d(32, 32, 4, 4, bias=False),
       ConvResLayer(32, 24, 24, 5),
+      ConvResLayer(32, 24, 24, 5),
+      ConvResLayer(32, 24, 24, 5),
       nn.ConvTranspose2d(32, 1, 5, bias=False),
       nn.Sigmoid()
     )
@@ -126,7 +129,7 @@ class WGANDisc:
     gradient = torch_grad(inputs=data_mix, outputs=y,
       grad_outputs=torch.ones(*y.shape, device=device),
       create_graph=True)[0]
-    penalty = (gradient**2).sum()
+    penalty = torch.relu((torch_vnorm(gradient) - g_0)/g_0)**2
     return penalty
   def rand_weighted_mix(self, data_r, wts_r, data_g, wts_g, N=None):
     """ Create a batch of mixed data. The batchsize is N.
