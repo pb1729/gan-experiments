@@ -18,7 +18,7 @@ lr_d = 0.0001  # learning rate for discriminator
 lr_g = 0.00001 # learning rate for generator
 beta_1 = 0.5   # Adam parameter
 beta_2 = 0.99  # Adam parameter
-d_step_n = 4   # number of discriminator steps per generator step
+d_step_n = 1   # number of discriminator steps per generator step
 
 
 
