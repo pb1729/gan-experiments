@@ -11,37 +11,23 @@ from tensorboard_viz import TensorBoard
 
 
 device = "cuda"
-batch = 8 # batch size
+batch = 128 # batch size
 λ = 10. # hyperparameter controlling strength of the gradient penalty
 g_0 = 0.07 # hyperparameter controlling the lipschitz constant of the discriminator
-lr_d = 0.0002  # learning rate for discriminator
-lr_g = 0.00003 # learning rate for generator
+lr_d = 0.0001  # learning rate for discriminator
+lr_g = 0.00001 # learning rate for generator
 beta_1 = 0.5   # Adam parameter
 beta_2 = 0.99  # Adam parameter
 d_step_n = 4   # number of discriminator steps per generator step
 
 
-class F_LinTanh(torch.autograd.Function):
-  """ sigmoid function except with a constant derivative of 1 """
-  @staticmethod
-  def forward(self, inp):
-    return torch.tanh(inp)
-  @staticmethod
-  def backward(self, grad_out):
-    return grad_out
-
-class LinTanh(nn.Module):
-  def __init__(self):
-    super().__init__()
-  def forward(self, x):
-    return F_LinTanh.apply(x)
 
 class ResLayer(nn.Module):
   def __init__(self, n):
     super().__init__()
     self.layers = nn.Sequential(
       nn.Linear(n, n),
-      nn.LayerNorm([n]),
+      nn.BatchNorm1d(n),
       nn.LeakyReLU(),
       nn.Linear(n, n, bias=False),
       nn.Dropout(p=0.3),
@@ -54,7 +40,7 @@ class ConvResLayer(nn.Module):
     super().__init__()
     self.layers = nn.Sequential(
       nn.Conv2d(n, n, kernsz, padding="same"),
-      nn.LayerNorm([n, h, w]),
+      nn.BatchNorm2d(n),
       nn.LeakyReLU(),
       nn.Conv2d(n, n, kernsz, padding="same", bias=False),
       nn.Dropout(p=0.2),
@@ -97,7 +83,7 @@ class Generator(nn.Module):
       ConvResLayer(32, 28, 28, 5),
       ConvResLayer(32, 28, 28, 5),
       nn.Conv2d(32, 1, 5, padding="same", bias=False),
-      LinTanh()
+      nn.Tanh()
     )
   def forward(self, z):
     return self.layers(z).reshape(-1, 28, 28)
@@ -172,8 +158,7 @@ class WGAN:
     self.cycle_counter = 0
   def transform(self, data_r, inst_str=0.8):
     """ center around 0 and add instance noise """
-    data = (1-inst_str)*data_r + inst_str*torch.rand(*data_r.shape, device=device)
-    return 2*data - 1.
+    return 2*data_r - 1.
   def train_step(self, data_r, wts_r):
     data_r = self.transform(data_r)
     self.cycle_counter = (self.cycle_counter - 1) % d_step_n
@@ -212,13 +197,14 @@ class WGAN:
       latents_size, img_size)
 
 
-def batchify(generator, batchsz):
+def batchify(generator, batchsz, epochs=10):
   stack = []
-  for (img, _) in generator:
-    if len(stack) >= batchsz:
-      yield torch.cat(stack, dim=0)
-      stack = []
-    stack.append(img)
+  for epoch in range(epochs):
+    for (img, _) in generator:
+      if len(stack) >= batchsz:
+        yield torch.cat(stack, dim=0)
+        stack = []
+      stack.append(img)
 
 
 def main(save_path, load_path=None):
