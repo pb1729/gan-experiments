@@ -75,21 +75,6 @@ def weights_init(m):
         nn.init.constant_(m.bias.data, 0)
 
 
-class F_LinTanh(torch.autograd.Function):
-  """ sigmoid function except with a constant derivative of 1 """
-  @staticmethod
-  def forward(self, inp):
-    return torch.tanh(inp)
-  @staticmethod
-  def backward(self, grad_out):
-    return grad_out
-
-class LinTanh(nn.Module):
-  def __init__(self):
-    super().__init__()
-  def forward(self, x):
-    return F_LinTanh.apply(x)
-
 # Generator Code
 
 class Generator(nn.Module):
