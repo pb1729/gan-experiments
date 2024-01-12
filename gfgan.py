@@ -13,7 +13,7 @@ from tensorboard_viz import TensorBoard
 device = "cuda"
 batch = 128 # batch size
 lr_d = 0.0001  # learning rate for discriminator
-lr_g = 0.0001  # learning rate for generator
+lr_g = 0.00005 # learning rate for generator
 beta_1 = 0.5   # Adam parameter
 beta_2 = 0.99  # Adam parameter
 d_step_n = 1   # number of discriminator steps per generator step
@@ -129,8 +129,8 @@ class GANDisc:
   """ utility class for training a GAN discriminator """
   def __init__(self, discriminator, input_size):
     self.disc = discriminator
-    #self.optim = torch.optim.Adam(self.disc.parameters(), lr_d, (beta_1, beta_2))
-    self.optim = torch.optim.SGD(self.disc.parameters(), lr_d)
+    self.optim = torch.optim.Adam(self.disc.parameters(), lr_d, (beta_1, beta_2))
+    #self.optim = torch.optim.SGD(self.disc.parameters(), lr_d)
     summary(self.disc, input_size=input_size)
   def train_step(self, data_r, wts_r, data_g, wts_g):
     """ perform 1 training step of WGAN training
