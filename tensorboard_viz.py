@@ -13,7 +13,15 @@ import torchvision
 LOG_DIR = "runs"
 
 
+class DummyTensorBoard:
+  """ dummy tensorboard that implements the same methods as a real one """
+  def img_grid(self, label, images):
+    pass
+  def scalar(self, label, i, val):
+    pass
+
 class TensorBoard:
+  """ logs various kinds of data to a tensor board """
   def __init__(self):
     self.writer = SummaryWriter(LOG_DIR)
     self.histories = {}
