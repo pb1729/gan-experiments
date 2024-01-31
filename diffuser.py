@@ -217,7 +217,7 @@ class DiffuserTrainer:
     noise = sigma*torch.randn(batch, nc, img_sz, img_sz, device=device)
     noised_data = noise + shrink*data
     predicted_noise = self.unet(noised_data, t)
-    rms_errs = torch.sqrt(((noise - predicted_noise)**2).mean(3).mean(2).mean(1))
+    rms_errs = torch.sqrt(((noise - predicted_noise)**2).mean((1,2,3)))
     loss = (rms_errs/(sigma + sigma_epsilon)).mean()
     loss.backward()
     self.optim.step()
