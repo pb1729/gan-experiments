@@ -1,7 +1,11 @@
 import torchvision.datasets as datasets
 from torchvision.transforms import ToTensor
 
-mnist = datasets.MNIST(root='./data', train=True, download=True,
+ROOT = "./data"
+
+mnist = datasets.MNIST(root=ROOT, train=True, download=True,
     transform=ToTensor(),)
 
+cifar10 = datasets.CIFAR10(root=ROOT, train=True, download=True,
+    transform=ToTensor(),)
 
