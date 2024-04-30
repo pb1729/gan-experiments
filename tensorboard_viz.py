@@ -22,8 +22,8 @@ class DummyTensorBoard:
 
 class TensorBoard:
   """ logs various kinds of data to a tensor board """
-  def __init__(self):
-    self.writer = SummaryWriter(LOG_DIR)
+  def __init__(self, name="most_recent_unnamed"):
+    self.writer = SummaryWriter(LOG_DIR + "/" + name)
     self.histories = {}
   def img_grid(self, label, images):
     grid = torchvision.utils.make_grid(images)
